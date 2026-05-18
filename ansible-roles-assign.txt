@@ -1,6 +1,5 @@
-Task 1. VirtualBox setup for ansible (2centos. 1ubuntu)
 
-Task 2. Write ansible play book to install apache server on these machines and start the service using handler.
+Task 1. VirtualBox setup for ansible (2centos. 1ubuntu)
 
 vi apache.yml
 
@@ -30,7 +29,7 @@ vi apache.yml
       service:
         name: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd' or 'apache2' }}"
         state: restarted
-
+Task 2. Write ansible play book to install apache server on these machines and start the service using handler.
 
 ***run playbook "ansible-playbook apache.yml"
 
