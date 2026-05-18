@@ -1,0 +1,801 @@
+Task 1. VirtualBox setup for ansible (2centos. 1ubuntu)
+
+Task 2. Write ansible play book to install apache server on these machines and start the service using handler.
+
+vi apache.yml
+
+---
+- name: Install and start Apache
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install Apache
+      package:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - httpd
+        - apache2
+      ignore_errors: yes
+
+    - name: Start Apache
+      service:
+        name: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd' or 'apache2' }}"
+        state: started
+        enabled: yes
+      notify: Restart Apache
+
+  handlers:
+    - name: Restart Apache
+      service:
+        name: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd' or 'apache2' }}"
+        state: restarted
+
+
+***run playbook "ansible-playbook apache.yml"
+
+
+Task 3. Create an Ansible role for this Apache setup Convert above Playbook into Role.
+
+***create the role.
+
+$ ansible-galaxy init apache_setup 
+
+**tasks/main.yml
+
+---
+- name: Install Apache
+  package:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - httpd
+    - apache2
+  ignore_errors: yes
+
+- name: Start Apache
+  service:
+    name: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd' or 'apache2' }}"
+    state: started
+    enabled: yes
+  notify: Restart Apache
+
+
+***handlers/main.yml
+
+---
+- name: Restart Apache
+  service:
+    name: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd' or 'apache2' }}"
+    state: restarted
+
+
+**Create the main playbook which refers the role.
+
+vi site.yml
+
+---
+- hosts: all
+  become: yes
+  roles:
+    - apache
+
+**run playbook ansible-playbook site.yml
+
+*****************************************************
+
+ Task 4: OS Update + Reboot + Wait for Services
+
+vi osupdate.yml
+
+---
+- name: Update and reboot
+  hosts: all
+  become: yes
+  tasks:
+    - name: Update OS
+      package:
+        name: '*'
+        state: latest
+
+    - name: Reboot system
+      reboot:
+        reboot_timeout: 300
+      async: 1
+      poll: 0
+      ignore_errors: true
+
+    - name: Wait for SSH to come back
+      wait_for_connection:
+        delay: 10
+        timeout: 300
+
+    - name: Wait for Apache
+      wait_for:
+        port: 80
+        state: started
+        timeout: 120
+
+
+****************************************************
+
+Task 5. Write a playbook to fetch apache(index.html) to copy to the Ansible master.
+
+vi apacheindex.yml
+
+---
+- name: Fetch Apache index.html
+  hosts: all
+  become: yes
+  tasks:
+    - name: Fetch index.html
+      fetch:
+        src: /var/www/html/index.html
+        dest: /tmp/index_{{ inventory_hostname }}.html
+        flat: yes
+
+
+***********************************************
+
+Task 6. Write a playbook to display apache version on centos and ubuntu.
+
+vi osversion.yml
+
+---
+- name: Display Apache version
+  hosts: all
+  become: yes
+  tasks:
+    - name: Get Apache version
+      shell: "{{ ansible_facts['os_family'] == 'RedHat' and 'httpd -v' or 'apache2 -v' }}"
+      register: apache_version
+
+    - debug:
+        var: apache_version.stdout
+
+
+***************************************************
+
+Task 7.  Write a playbook to disable SELINUX, It ensures a particular line is in a file or replaces an existing line using a back-referenced regular expression
+    (SELINUX=Enforcing to SELINUX=Permissive)
+
+vi regex.yml
+
+---
+- name: Disable SELINUX
+  hosts: all
+  become: yes
+  tasks:
+    - name: Ensure SELINUX=permissive
+      lineinfile:
+        path: /etc/selinux/config
+        regexp: '^SELINUX='
+        line: 'SELINUX=permissive'
+
+
+******************************************************
+
+Task 8. Create 3 user, and them to sudoers group (User can only switch to root using password)
+   ( use : loop/with_items)
+
+vi newusers.yml
+
+---
+- name: Create users and add to sudoers
+  hosts: all
+  become: yes
+  vars:
+    users:
+      - devops1
+      - devops2
+      - devops3
+  tasks:
+    - name: Create users
+      user:
+        name: "{{ item }}"
+        shell: /bin/bash
+        groups: wheel
+        append: yes
+        password: "{{ 'YourPasswordHere' | password_hash('sha512') }}"
+      loop: "{{ users }}"
+
+***********************************************
+
+
+
+
+*********************************************************
+
+Task 10: Customize Ansible Result Summary (Plugin)
+
+Enable Plugin:
+In ansible.cfg:
+
+ini
+
+[defaults]
+callback_whitelist = profile_tasks
+
+*******************************************
+
+Install via:
+
+ansible-galaxy collection install community.general
+
+
+*******************************************************************************************************************
+
+EXPLAINATION OF EACH TASKS
+
+**************************************************
+
+
+✅ Task 1: Create a Local Test Environment using VirtualBox
+🧱 Setup:
+You will create 3 virtual machines:
+
+Ansible Master (CentOS) – where Ansible is installed and run
+
+Ansible Nodes – one CentOS, one Ubuntu
+
+Use NAT networking to ensure internet access for all VMs
+
+🎯 Objective:
+SSH connectivity from Master to Nodes (ansible_user@node)
+
+Don’t upgrade the system during initial setup (for stability and speed)
+
+************************************
+
+✅ Task 2: Write an Ansible playbook to install Apache and start it using a handler
+🔧 What to Do:
+Write a playbook to:
+
+Install Apache (httpd for CentOS/Amazon, apache2 for Ubuntu)
+
+Start and enable the Apache service
+
+Use a handler to restart Apache when needed
+
+✅ You've already done this!
+
+*****************************************
+
+✅ Task 3: Repeat Task 2 using an Ansible Role
+🎯 Why?
+Roles let you:
+
+Reuse the Apache install logic
+
+Organize tasks, handlers, vars, etc., cleanly
+
+✅ You've already converted it into a role: apache_setup
+
+*************************************************
+
+✅ Task 4: Playbook to update CentOS & Ubuntu, reboot, and wait for services to come back
+🔁 What to Do:
+Use Ansible to:
+
+Run OS updates (yum update / apt update && upgrade)
+
+Reboot the system
+
+Wait for:
+
+SSH to come back up
+
+Apache service to be active
+
+✅ Use:
+
+async, poll for reboot
+
+wait_for_connection, wait_for module for SSH and Apache
+
+**************************************************
+
+✅ Task 5: Playbook to fetch index.html from remote to Ansible master
+📥 What to Do:
+Use the fetch module
+
+Copy /var/www/html/index.html from each node
+
+Save with unique names (e.g. index_<host>.html) on Ansible master
+
+✅ You’ve already done this too!
+
+******************************************
+
+✅ Task 6: Playbook to display Apache version on CentOS and Ubuntu
+🔍 What to Do:
+Use command or shell module
+
+Run:
+
+bash
+Copy
+Edit
+httpd -v   # for CentOS/Amazon Linux
+apache2 -v # for Ubuntu
+Use conditionals to pick the right command based on OS family.
+
+******************************************************
+
+✅ Task 7: Playbook to disable SELinux
+🔐 What to Do:
+Modify /etc/selinux/config
+
+Replace:
+
+ini
+Copy
+Edit
+SELINUX=enforcing
+with:
+
+ini
+Copy
+Edit
+SELINUX=permissive
+Use lineinfile with regex
+
+Reboot only if SELinux mode was changed (optional)
+
+*************************************************************
+
+✅ Task 8: Create 3 users and add them to sudoers group
+👥 What to Do:
+Use user module
+
+Use with_items or loop to create 3 users
+
+Add to wheel or sudo group
+
+Set password (optional) and allow sudo with password
+
+*********************************************************
+
+✅ Task 9: Encrypt inventory with Ansible Vault
+🔐 What to Do:
+Use:******************
+
+bash
+Copy
+Edit
+ansible-vault encrypt inventory.ini
+Then run playbooks using:
+
+bash
+Copy
+Edit
+ansible-playbook site.yml --ask-vault-pass
+This secures IPs, users, or secrets stored in inventory or vars.
+
+*********************************************
+
+✅ Task 10: Customize Ansible result summary using a plugin
+🎯 What to Do:
+Use a callback plugin (like profile_tasks, yaml, json, etc.)
+
+Configure it in ansible.cfg
+
+Improves readability, timing info, or structured logs
+
+✅ You can test with:
+
+ANSIBLE_STDOUT_CALLBACK=profile_tasks ansible-playbook play.yml
+
+
+🧩 Summary Table
+Task	Title	Status
+1	VirtualBox test environment	⚙️ Setup or AWS alternative
+2	Apache install with handler	✅ Done
+3	Convert to role	✅ Done
+4	Update + reboot + wait	🔄 Can do next
+5	Fetch index.html	✅ Done
+6	Show Apache version	⏳ Next candidate
+7	Disable SELinux	⏳ To implement
+8	Create users + sudoers	⏳ To implement
+9	Use Ansible Vault	🔐 Pending
+10	Result plugin	✅ Understood & explained
+
+
+
+**********************************************************************************************
+
+✅ 1. Basic loop (installing multiple packages)
+yaml
+Copy
+Edit
+- name: Install multiple packages
+  ansible.builtin.yum:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - httpd
+    - mysql
+    - php
+Explanation:
+
+loop: is used to iterate over a list of items (httpd, mysql, php).
+
+{{ item }} represents the current value from the list during each iteration.
+
+This installs all listed packages using the yum module.
+
+✅ Use case: Installing a list of packages or software components.
+
+✅ 2. Loop with dictionaries (key-value pairs)
+yaml
+Copy
+Edit
+- name: Create multiple users with different attributes
+  user:
+    name: "{{ item.name }}"
+    state: present
+    groups: "{{ item.groups }}"
+  loop:
+    - { name: 'user1', groups: 'admin' }
+    - { name: 'user2', groups: 'developers' }
+Explanation:
+
+Here, loop is iterating over a list of dictionaries.
+
+Each item has multiple keys (name, groups).
+
+item.name and item.groups extract values from each dictionary.
+
+✅ Use case: Creating users with specific groups or attributes.
+
+✅ 3. Nested loops using subelements
+yaml
+Copy
+Edit
+- name: Add multiple SSH keys for each user
+  authorized_key:
+    user: "{{ item.0.name }}"
+    key: "{{ item.1 }}"
+  loop: "{{ users | subelements('ssh_keys') }}"
+yaml
+Copy
+Edit
+vars:
+  users:
+    - name: alice
+      ssh_keys:
+        - "ssh-rsa AAAAB3Nza... alice1"
+        - "ssh-rsa AAAAB3Nza... alice2"
+    - name: bob
+      ssh_keys:
+        - "ssh-rsa AAAAB3Nza... bob1"
+Explanation:
+
+subelements is used when looping through a list of lists (nested items).
+
+Each user has a list of ssh_keys.
+
+item.0.name gives the username, and item.1 gives the individual SSH key.
+
+✅ Use case: Adding multiple SSH keys per user.
+
+✅ 4. Looping with index tracking
+yaml
+Copy
+Edit
+- name: Show item with index
+  debug:
+    msg: "Item {{ item }} is at index {{ index }}"
+  loop: [one, two, three]
+  loop_control:
+    index_var: index
+Explanation:
+
+loop_control lets you control how the loop works.
+
+index_var: index saves the current loop index (0-based) in the index variable.
+
+This prints each item and its position in the list.
+
+✅ Use case: Debugging, ordering, or indexing tasks during loops.
+
+✅ 5. Looping over file list to copy files
+yaml
+Copy
+Edit
+- name: Copy multiple files
+  copy:
+    src: "{{ item }}"
+    dest: "/tmp/{{ item }}"
+  loop:
+    - file1.txt
+    - file2.txt
+Explanation:
+
+This task uses the copy module.
+
+It copies each file in the list from local to /tmp/ on the target machine.
+
+item holds the file name in each iteration.
+
+✅ Use case: Copying a group of files to a remote system.
+
+Summary Table:
+Loop Type	Use Case	Notes
+Basic list loop	Install packages, restart services	Simple list
+Dictionary loop	Create users with different groups	Use item.key
+Nested loop (subelements)	Add SSH keys, nested objects	Use item.0 and item.1
+Loop with index	Track item position	Useful for logs
+File list loop	Copy/delete files	item is file name
+
+*****************************************
+
+To execute a role in Ansible, you need:
+
+✅ 1. Role Directory Structure
+Here's an example role named myrole:
+
+css
+Copy
+Edit
+my-ansible-project/
+├── inventory
+├── playbook.yml
+└── roles/
+    └── myrole/
+        ├── tasks/
+        │   └── main.yml
+        ├── vars/
+        │   └── main.yml   # (optional)
+        └── defaults/
+            └── main.yml   # (optional)
+
+✅ 2. Role Task Example (roles/myrole/tasks/main.yml)
+yaml
+Copy
+Edit
+- name: Create users from loop
+  user:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ users }}"
+
+✅ 3. Playbook to Execute the Role (playbook.yml)
+yaml
+Copy
+Edit
+- name: Run myrole
+  hosts: all
+  become: true
+  vars:
+    users:
+      - alice
+      - bob
+      - carol
+  roles:
+    - myrole
+✅ 4. Inventory File (inventory)
+
+[all]
+localhost ansible_connection=local
+
+✅ 5. Run the Role using ansible-playbook
+
+ansible-playbook -i inventory playbook.yml
+
+✅ Output
+You will see:
+
+vbnet
+TASK [myrole : Create users from loop]
+ok: [localhost] => (item=alice)
+ok: [localhost] => (item=bob)
+ok: [localhost] => (item=carol)
+
+
+**************************************************
+
+Here’s how you can implement all 5 loop types (from earlier examples) as separate roles in a clean Ansible project. Below are:
+
+✅ Complete file structure
+✅ Content of each role
+✅ How to call them from a single playbook.yml
+
+📁 File Structure
+bash
+Copy
+Edit
+my-ansible-project/
+├── inventory
+├── playbook.yml
+└── roles/
+    ├── loop1_basic/
+    │   └── tasks/main.yml
+    ├── loop2_dict/
+    │   └── tasks/main.yml
+    ├── loop3_subelements/
+    │   └── tasks/main.yml
+    ├── loop4_index/
+    │   └── tasks/main.yml
+    └── loop5_files/
+        └── tasks/main.yml
+🔁 1. Role: loop1_basic (Install multiple packages)
+📄 roles/loop1_basic/tasks/main.yml:
+
+yaml
+Copy
+Edit
+- name: Install multiple packages
+  yum:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - httpd
+    - mariadb-server
+    - php
+🔁 2. Role: loop2_dict (Create users with group)
+📄 roles/loop2_dict/tasks/main.yml:
+
+yaml
+Copy
+Edit
+- name: Create users with group
+  user:
+    name: "{{ item.name }}"
+    groups: "{{ item.groups }}"
+    state: present
+  loop: "{{ users }}"
+In your playbook (below), you'll pass:
+
+yaml
+Copy
+Edit
+vars:
+  users:
+    - { name: 'alice', groups: 'admin' }
+    - { name: 'bob', groups: 'dev' }
+🔁 3. Role: loop3_subelements (Add multiple SSH keys per user)
+📄 roles/loop3_subelements/tasks/main.yml:
+
+yaml
+Copy
+Edit
+- name: Add multiple SSH keys
+  authorized_key:
+    user: "{{ item.0.name }}"
+    key: "{{ item.1 }}"
+  loop: "{{ ssh_users | subelements('keys') }}"
+Pass in playbook:
+
+yaml
+Copy
+Edit
+vars:
+  ssh_users:
+    - name: alice
+      keys:
+        - "ssh-rsa AAAAB... alice_key1"
+        - "ssh-rsa AAAAB... alice_key2"
+    - name: bob
+      keys:
+        - "ssh-rsa AAAAB... bob_key1"
+🔁 4. Role: loop4_index (Loop with index)
+📄 roles/loop4_index/tasks/main.yml:
+
+yaml
+Copy
+Edit
+- name: Print item with index
+  debug:
+    msg: "Index {{ index }}: {{ item }}"
+  loop: "{{ loop_items }}"
+  loop_control:
+    index_var: index
+In your playbook:
+
+yaml
+Copy
+Edit
+vars:
+  loop_items:
+    - one
+    - two
+    - three
+🔁 5. Role: loop5_files (Copy multiple files)
+📄 roles/loop5_files/tasks/main.yml:
+
+yaml
+Copy
+Edit
+- name: Copy sample files to /tmp
+  copy:
+    src: "{{ item }}"
+    dest: "/tmp/{{ item }}"
+  loop: "{{ files }}"
+Your files/ directory must exist, or use dummy files.
+
+In playbook:
+
+yaml
+Copy
+Edit
+vars:
+  files:
+    - file1.txt
+    - file2.txt
+Make sure these files exist in the same directory or in roles/loop5_files/files/.
+
+📄 playbook.yml (Run All Roles)
+yaml
+Copy
+Edit
+- name: Demo all loop types
+  hosts: all
+  become: true
+  vars:
+    users:
+      - { name: 'alice', groups: 'admin' }
+      - { name: 'bob', groups: 'dev' }
+
+    ssh_users:
+      - name: alice
+        keys:
+          - "ssh-rsa AAAAB3Nza... alice1"
+          - "ssh-rsa AAAAB3Nza... alice2"
+      - name: bob
+        keys:
+          - "ssh-rsa AAAAB3Nza... bob1"
+
+    loop_items:
+      - one
+      - two
+      - three
+
+    files:
+      - file1.txt
+      - file2.txt
+
+  roles:
+    - loop1_basic
+    - loop2_dict
+    - loop3_subelements
+    - loop4_index
+    - loop5_files
+
+📄 inventory
+localhost ansible_connection=local
+✅ Run It
+bash
+Copy
+Edit
+ansible-playbook -i inventory playbook.yml
+***************************************************
+
+
+
+---
+- name: Verify Ansible setup on managed nodes
+  hosts: all
+  become: true
+  tasks:
+
+    - name: Print message
+      ansible.builtin.debug:
+        msg: "Hello from {{ inventory_hostname }}!"
+
+    - name: Show uptime
+      ansible.builtin.command: uptime
+      register: uptime_result
+
+    - name: Display uptime result
+      ansible.builtin.debug:
+        var: uptime_result.stdout
+
+    - name: Check OS version
+      ansible.builtin.command: cat /etc/os-release
+      register: os_version
+
+    - name: Display OS version
+      ansible.builtin.debug:
+        var: os_version.stdout_lines
+
